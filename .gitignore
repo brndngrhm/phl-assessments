@@ -1,0 +1,8 @@
+/.quarto/
+_quarto-output/
+*.csv
+*.rds
+*.geojson
+test.R
+explore.qmd
+data-prep.R
