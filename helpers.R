@@ -5,7 +5,6 @@ library(reactable)
 library(leaflet)
 library(arrow)
 library(sfarrow)
-library(duckplyr)
 library(duckdb)
 library(bslib)
 library(bsicons)
@@ -15,13 +14,26 @@ library(crosstalk)
 library(shinyjs)
 library(plotly)
 library(shinyWidgets)
+library(randomForest)
+library(showtext)
+library(sysfonts)
+library(showtextdb)
 
+
+my_theme <- bs_theme(
+  bg = "#fbf7f5",
+  fg = "#404248",
+  primary = "#4e9a62",
+  font_scale = 0.9,
+  base_font = font_google("Space Mono"),
+  code_font = font_google("Space Mono")
+)
 
 #* app functions
 get_loc_names <-
   function(location) {
     # DuckDB can read files from folder
-    prop_path <- here::here("data", "res_prop.parquet")
+    prop_path <- here::here("res_prop.parquet")
 
     # SQL statement to perform data aggregation
     # String interpolation is used to inject dynamic string parts into the query
@@ -55,7 +67,7 @@ hc_pal <- c(
 get_data_dict_table <-
   function() {
     # DuckDB can read files from folder by using a glob pattern
-    field_path <- here::here("data", "fields.parquet")
+    field_path <- here::here("fields.parquet")
 
     # SQL statement to perform data aggregation
     # String interpolation is used to inject dynamic string parts into the query
@@ -72,72 +84,15 @@ get_data_dict_table <-
       statement = fields_query
     )
 
-    res |>
-      select(-Type) |>
-      reactable(
-        highlight = TRUE,
-        resizable = TRUE,
-        searchable = TRUE,
-        filterable = TRUE,
-        striped = TRUE,
-        columns = list(
-          Description = colDef(
-            html = TRUE
-          )
-        )
-      )
-  }
 
-# get_assessment_compare_plot <-
-#   function(data) {
-#     data |>
-#       # arrange(desc(market_value)) |>
-#       hchart(
-#         type = "bar",
-#         hcaes(
-#           x = location, y = round(market_value), dollar_value = scales::dollar(round(market_value)),
-#           color = ifelse(type == "Input", hc_pal[1], hc_pal[2])
-#         )
-#       ) |>
-#       hc_xAxis(title = list(text = "")) |>
-#       hc_yAxis(
-#         title = list(text = "Assessed Value")
-#       ) %>%
-#       hc_tooltip(
-#         shared = F,
-#         headerFormat = "",
-#         pointFormat = "{point.location}</br><b>Market value</b>: {point.dollar_value}"
-#       )
-#   }
-
-get_assessment_compare_plotly <-
-  function(data) {
-    p <-
-      data |>
-      ggplot(aes(
-        x = reorder(location, market_value), y = market_value,
-        text = paste(location, market_value),
-        fill = type
-      )) +
-      geom_col() +
-      coord_flip() +
-      scale_y_continuous(labels = scales::dollar) +
-      scale_fill_manual(values = hc_pal) +
-      labs(x = "", y = "Assessed Value") +
-      theme_light() +
-      theme(legend.position = "none")
-
-    plotly::ggplotly(p, tooltip = "text") %>%
-      layout(hoverlabel = list(align = "left")) %>%
-      highlight(on = "plotly_click", off = "plotly_doubleclick") %>%
-      highlight(on = "plotly_selected", off = "plotly_deselect") # for lasso and box select
+    return(res)
   }
 
 #* assessment functions ---------------------
 get_prop_asssessment <-
   function(parcel) {
     # DuckDB can read files from folder
-    assessment_path <- here::here("data", "assessments.parquet")
+    assessment_path <- here::here("assessments.parquet")
 
     # SQL statement to perform data aggregation
     # String interpolation is used to inject dynamic string parts into the query
@@ -195,6 +150,65 @@ get_prop_assessment_plot <-
       )
   }
 
+# get_assessment_compare_plot <-
+#   function(data) {
+#     data |>
+#       # arrange(desc(market_value)) |>
+#       hchart(
+#         type = "bar",
+#         hcaes(
+#           x = location, y = round(market_value), dollar_value = scales::dollar(round(market_value)),
+#           color = ifelse(type == "Input", hc_pal[1], hc_pal[2])
+#         )
+#       ) |>
+#       hc_xAxis(title = list(text = "")) |>
+#       hc_yAxis(
+#         title = list(text = "Assessed Value")
+#       ) %>%
+#       hc_tooltip(
+#         shared = F,
+#         headerFormat = "",
+#         pointFormat = "{point.location}</br><b>Market value</b>: {point.dollar_value}"
+#       )
+#   }
+
+get_assessment_compare_plotly <-
+  function(data) {
+    p <-
+      data |>
+      ggplot(aes(
+        x = reorder(location, market_value), y = market_value,
+        text = paste0(location, ": ", scales::dollar(market_value)),
+        fill = type
+      )) +
+      geom_col() +
+      coord_flip() +
+      scale_y_continuous(labels = scales::dollar) +
+      scale_fill_manual(values = hc_pal) +
+      labs(x = "", y = "Assessed Value") +
+      theme_light() +
+      theme(
+        legend.position = "none",
+        text = element_text(size = 15, family = "Courier"),
+        panel.background = element_rect(
+          fill = "#fbf7f5",
+          colour = "#fbf7f5"
+        ),
+        plot.background = element_rect(fill = "#fbf7f5")
+      )
+
+    # t <- list(
+    #   family = "Consolas",
+    #   size = 14
+    # )
+
+    plotly::ggplotly(p, tooltip = "text") %>%
+      layout(hoverlabel = list(align = "right")) %>%
+      highlight(on = "plotly_click", off = "plotly_doubleclick") %>%
+      highlight(on = "plotly_selected", off = "plotly_deselect")
+  }
+
+
 #* property matching functions ---------------------
 
 params <- c(
@@ -219,7 +233,7 @@ params <- c(
 get_index_property <-
   function(location) {
     # DuckDB can read files from folder
-    prop_path <- here::here("data", "res_prop.parquet")
+    prop_path <- here::here("res_prop.parquet")
 
     # SQL statement to perform data aggregation
     # String interpolation is used to inject dynamic string parts into the query
@@ -245,7 +259,7 @@ get_index_property <-
 
 get_phl_tracts <-
   function() {
-    sfarrow::st_read_parquet("data/phl_tracts.parquet")
+    sfarrow::st_read_parquet("phl_tracts.parquet")
   }
 
 select_matching_params <-
@@ -284,9 +298,8 @@ get_touching_tracts <-
 
 get_match_universe <-
   function(index_property, matching_tracts) {
-
     # DuckDB can read files from folder
-    prop_path <- here::here("data", "res_prop.parquet")
+    prop_path <- here::here("res_prop.parquet")
 
     # SQL statement to perform data aggregation
     # String interpolation is used to inject dynamic string parts into the query
@@ -325,15 +338,16 @@ find_matching_properties <-
 
     set.seed(354)
     prop_match <-
-      matchit(match_ind ~ exterior_condition + interior_condition + number_of_bedrooms +
-        number_stories + quality_grade + total_area + total_livable_area + view_type + year_built,
-      # lattitude + longitude,
-      data = property_prep,
-      method = "nearest",
-      distance = "randomforest",
-      antiexact = "parcel_number",
-      ratio = n_matches,
-      replace = FALSE
+      matchit(
+        match_ind ~ exterior_condition + interior_condition + number_of_bedrooms +
+          number_stories + quality_grade + total_area + total_livable_area + view_type + year_built,
+        # lattitude + longitude,
+        data = property_prep,
+        method = "nearest",
+        distance = "randomforest",
+        antiexact = "parcel_number",
+        ratio = n_matches,
+        replace = FALSE
       )
 
     tidy_match <-
