@@ -7,3 +7,6 @@ test.R
 explore.qmd
 data-prep.R
 www/
+res_prop.parquet
+assessments.parquet
+data/
