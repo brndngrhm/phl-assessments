@@ -1,13 +1,15 @@
 source("helpers.R")
 
+thematic::thematic_shiny()
 
 ui <- page_sidebar(
   title = "Philly Property Assessment Explorer",
+  theme = my_theme,
   sidebar = sidebar(
     shiny::h5("Start Here"),
     textInput(
       inputId = "address_input",
-      label = "Step 1 - Enter Address",
+      label = shiny::strong("Step 1 - Enter Address"),
       value = "",
       placeholder = "ex: 123 Market St"
     ),
@@ -17,24 +19,25 @@ ui <- page_sidebar(
     ),
     selectInput(
       inputId = "address_select",
-      label = "Step 2 - Confirm Address",
+      label = shiny::strong("Step 2 - Confirm Address"),
       choices = " "
     ),
-    shiny::p("Step 3 - Find Matches"),
-    shiny::actionButton(
+    shiny::p(shiny::strong("Step 3 - Find Matches")),
+    bslib::input_task_button(
       "get_matches",
       "Find Matches"
     ),
-    shiny::conditionalPanel(
-      condition = "input.get_matches > 0",
-      htmltools::browsable(
-        tagList(
-          tags$button(
-            tagList(fontawesome::fa("download"), "Download Table (csv)"),
-            onclick = "Reactable.downloadDataCSV('matches-table', 'property_comps.csv')"
-          ),
-        )
+    shiny::hr(),
+    # shiny::conditionalPanel(
+    #   condition = "input.get_matches > 0",
+    htmltools::browsable(
+      tagList(
+        tags$button(
+          tagList(fontawesome::fa("download"), "Download Table (csv)"),
+          onclick = "Reactable.downloadDataCSV('matches-table', 'property_comps.csv')"
+        ),
       )
+      # )
     ),
     shiny::hr(),
     shiny::h5("Learn More"),
@@ -46,13 +49,15 @@ ui <- page_sidebar(
       "methods_and_data",
       "Methods & Data"
     ),
-    shiny::hr(),
-    shiny::h5("Disclaimer"),
-    shiny::p("This app is not affiliated in any way with the Phila Office of Property Assessmment or OpenDataPhilly. There is no guarantee any of the resulting 'matched' properties were used in determining property's market value."),
+    actionButton(
+      "disclaimer",
+      "Disclaimer"
+    ),
+    HTML("<span align = 'center'> A side project by</br><a href='www.futurestateanalytics.io'>Future State Analytics</a></span>")
   ),
   layout_columns(
-    col_widths = c(6, 6),
-    row_heights = c(2, 1.5),
+    col_widths = c(4, 4, 4, 12, 3),
+    row_heights = c(2, 1.5, 0.5),
     card(
       card_header(
         "Matched Properties",
@@ -64,18 +69,6 @@ ui <- page_sidebar(
       full_screen = TRUE,
       fill = TRUE,
       leafletOutput("map")
-    ),
-    card(
-      full_screen = TRUE,
-      fill = TRUE,
-      card_header(
-        "Matches Detail",
-        tooltip(
-          bs_icon("info-circle"),
-          "Detailed information on the matched properties identifed by the algorithm. Note the Input Property will be in the first row."
-        )
-      ),
-      reactableOutput("matches2")
     ),
     card(
       full_screen = TRUE,
@@ -99,6 +92,23 @@ ui <- page_sidebar(
         )
       ),
       highchartOutput("assessment_plot")
+    ),
+    card(
+      full_screen = TRUE,
+      fill = TRUE,
+      card_header(
+        "Matches Detail",
+        tooltip(
+          bs_icon("info-circle"),
+          HTML(
+            "Detailed information on the matched properties identifed by the algorithm.
+            Note the Input Property will be in the first row.
+            A full list if variables and column definitions can be found at the <a href='https://metadata.phila.gov/#home/datasetdetails/5543865f20583086178c4ee5/representationdetails/55d624fdad35c7e854cb21a4/'>OPA properties metadata catalogue.</a>
+            "
+          )
+        )
+      ),
+      reactableOutput("matches2")
     )
   ),
 )
@@ -147,45 +157,20 @@ server <- function(input, output) {
 
   matches_shared <-
     reactive(
-      crosstalk::SharedData$new(matches(), ~location)
+      crosstalk::SharedData$new(
+        matches() %>%
+          select(-c(match_ind, weights, subclass)) %>%
+          select(
+            type, location, market_value, central_air:year_built,
+            similarity = distance, match_num, parcel_number, lattitude, longitude
+          ),
+        ~location
+      )
     )
 
   output$matches2 <-
     renderReactable({
       matches_shared() %>%
-        # select(-c(match_ind, census_tract, lattitude, longitude, weights, subclass, parcel_number)) %>%
-        # select(type, match_num, distance, everything()) %>%
-        # mutate(
-        #   type = ifelse(type == "Input", "Input Property", "Match"),
-        #   match_num = ifelse(match_num == 0, NA_real_, match_num),
-        #   distance = round(distance, 4)
-        # ) %>%
-        # rename(
-        #   Type = type,
-        #   `Match ID` = match_num,
-        #   `Closeness Score` = distance,
-        #   Address = location,
-        #   Assessment = market_value,
-        #   `Central Air` = central_air,
-        #   `Exterior Condition` = exterior_condition,
-        #   `Interior Condition` = interior_condition,
-        #   `Bedrooms` = number_of_bedrooms,
-        #   `Stories` = number_stories,
-        #   `Quality Grade` = quality_grade,
-        #   `Total Area` = total_area,
-        #   `Livable Area` = total_livable_area,
-        #   `View` = view_type,
-        #   `Year Built` = year_built
-        # ) %>%
-        # select(-c(`Match ID`, Type)) |>
-        # select(Address, everything()) |>
-        # mutate(across(where(is.numeric), ~ as.character(.x))) |>
-        # pivot_longer(cols = `Closeness Score`:`Year Built`) |>
-        # pivot_wider(names_from = Address, values_from = value) |>
-        # rename(
-        #   Features = name,
-        #   `Input Proprty` = 2
-        # ) %>%
         reactable(.,
           searchable = TRUE,
           filterable = TRUE,
@@ -197,20 +182,26 @@ server <- function(input, output) {
           selection = "multiple",
           onClick = "select",
           rowStyle = list(cursor = "pointer"),
-          # columns = list(
-          #   Features = colDef(
-          #     sticky = "left",
-          #     # Add a right border style to visually distinguish the sticky column
-          #     style = list(borderRight = "1px solid #eee"),
-          #     headerStyle = list(borderRight = "1px solid #eee")
-          #   ),
-          #   `Input Proprty` = colDef(
-          #     sticky = "left",
-          #     # Add a right border style to visually distinguish the sticky column
-          #     style = list(borderRight = "1px solid #eee"),
-          #     headerStyle = list(borderRight = "1px solid #eee")
-          #   )
-          # )
+          style = list(fontSize = "0.875rem"),
+          columns = list(
+            parcel_number = colDef(show = FALSE),
+            lattitude = colDef(show = FALSE),
+            longitude = colDef(show = FALSE),
+            match_num = colDef(show = FALSE),
+            type = colDef(name = "Type"),
+            location = colDef(name = "Address"),
+            market_value = colDef(name = "Assessment", format = colFormat(currency = "USD", separators = TRUE, digits = 0)),
+            central_air = colDef(name = "Central Air"),
+            exterior_condition = colDef(name = "Ext. Cond."),
+            interior_condition = colDef(name = "Int. Cond."),
+            number_of_bedrooms = colDef(name = "Bedrooms"),
+            number_stories = colDef(name = "Stories"),
+            quality_grade = colDef(name = "Quality"),
+            total_area = colDef(name = "Tot. Area"),
+            total_livable_area = colDef(name = "Livable Area"),
+            view_type = colDef(name = "View"),
+            year_built = colDef(name = "Year")
+          )
         )
     })
 
@@ -283,11 +274,25 @@ server <- function(input, output) {
             A full list if variables and column definitions can be found at the <a href='https://metadata.phila.gov/#home/datasetdetails/5543865f20583086178c4ee5/representationdetails/55d624fdad35c7e854cb21a4/'>OPA properties metadata catalogue.</a>
           </p>
           <h3>Data</h3>
-          <p>Property assessment and geospatial data is sourced from the
+          <p>Property assessment and geospatial data is publicly available and is sourced from the
           <a href='https://opendataphilly.org/datasets/philadelphia-properties-and-assessment-history/#:~:text=Philadelphia%20Properties%20and%20Assessment%20History.%20Some%20of,to%20contact%20OPA%20to%20report%20the%20issue.'>Philadelphia Properties and Assessment History</a>
             which is maintained by OpenDataPhilly. Additional census tract data is obtained from
           <a href='https://github.com/walkerke/tigris'>Tigris</a>.</p>
         "
+        ),
+        easyClose = TRUE,
+        footer = NULL
+      )
+    )
+  })
+
+  observeEvent(input$disclaimer, {
+    showModal(
+      modalDialog(
+        HTML(
+          "<h3>Disclaimer</h3>
+            This app is not affiliated in any way with the Phila Office of Property Assessmment or OpenDataPhilly.
+            There is no guarantee any of the resulting 'matched' properties were used in determining the input property's market value."
         ),
         easyClose = TRUE,
         footer = NULL
